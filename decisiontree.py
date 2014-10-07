@@ -4,15 +4,8 @@
 import csv
 import sys
 import random
-from math import log
-from math import fabs
+from math import log, fabs
 from pprint import pprint
-
-inputfile = sys.argv[1]
-trainingsetsize = int(sys.argv[2])
-numtrials = int(sys.argv[3])
-verbose = int(sys.argv[4])
-
 
 
 def encode(str):
@@ -24,15 +17,6 @@ def encode(str):
 		return -1
 
 
-def countit(theset, theclass):
-	truecount = 0; falsecount = 0;
-	for x in theset:
-		if x[theclass]== 1 and x['Class'] == 1:
-			truecount +=1
-		elif x[theclass]==1 and x['Class'] ==0:
-			falsecount +=1
-	return (truecount, falsecount)
-
 def countthem(theset):
 	truecount  =0; falsecount = 0;
 	for x in theset:
@@ -43,26 +27,20 @@ def countthem(theset):
 	return (truecount, falsecount)
 
 
-def entropy(n1,n2):
-	if n1 != 0:
-		p1 = (n1*1.0)/(n1+n2)
-	else:
-		p1 = 0;
-	if n2 != 0:
-		p2 = (n2*1.0)/(n1+n2);
-	else:
-		p2 = 0
+def entropy(*args):
+	prob = []
+	for k,v in enumerate(args):
+		if v !=0:
+			prob.append( v*1.0/sum(args) )
+		else:
+			prob.append( 0)
 
-	if p1 != 0:
-		S1 = -1* p1*log(p1,2)
-	else:
-		S1 = 0;
-	if p2 != 0:  
-		S2 = -1* p2*log(p2,2)
-	else:
-		S2 = 0
-	S = S1+S2
-	return S
+	totentropy = 0
+	for k,v in enumerate(prob):
+		if v!=0:
+			totentropy += -1* v*log(v,2)
+
+	return totentropy
 
 def infogain(theset, cat):
 	t,f = countthem(theset)
@@ -83,7 +61,7 @@ def infogain(theset, cat):
 	infogain = eb - ea
 	return infogain
 
-def classifybaby(inputset, categories,targetcat=None):
+def maketree(inputset, categories,targetcat=None):
 	root = {}
 	tr,fa = countthem(inputset)
 	if(tr==0):
@@ -120,7 +98,7 @@ def classifybaby(inputset, categories,targetcat=None):
 		root['true']['root']['label']= mostcommon
 
 	else:
-		subtree = classifybaby(tset,categories,max_key)
+		subtree = maketree(tset,categories,max_key)
 		root['true'] = subtree
 
 	fset =[x for x in inputset if x[max_key]==0]
@@ -129,37 +107,17 @@ def classifybaby(inputset, categories,targetcat=None):
 		root['false']['root']['label']= mostcommon
 
 	else:
-		subtree = classifybaby(fset,categories,max_key)
+		subtree = maketree(fset,categories,max_key)
 		root['false']= subtree
 
 	return root
 
 
-def prior(theset, boole):
-	truecount = 0
-	total = 0;
-	for x in theset:
-		total +=1
-		if x['Class'] == boole:
-			truecount +=1
-	return (truecount,total)
-
-def real(theset):
-	totalcount = 0;
-	truecount = 0;
-	for x in theset:
-		totalcount +=1
-		if x==1:
-			truecount +=1
-	return (truecount,totalcount)
-
-
-def fsub(x,y):
-	return fabs(x-y)
 
 def checkThem(trainset, testset, classi):
 	totalset = trainset+testset
-	truecount, totalcount = prior(trainset,1)
+	truecount, falsecount = countthem(trainset)
+	totalcount = truecount+falsecount
 	ppoutput = []
 	actuals = [x['Class'] for x in testset]
 	daratio = truecount*1.0/(totalcount)
@@ -173,12 +131,13 @@ def checkThem(trainset, testset, classi):
 
 	dtdiff = 0; ppdiff = 0;
 	for k,v in enumerate(testset):
-		dtdiff += fsub(classi[k], testset[k]['Class'])
-		ppdiff += fsub(ppoutput[k], testset[k]['Class'])
+		dtdiff += fabs(classi[k]-testset[k]['Class'])
+		ppdiff += fabs(ppoutput[k]-testset[k]['Class'])
 
 	return (actuals, ppoutput, classi, ppdiff, dtdiff)
 
-def classifyitup(obj, tree):
+
+def classifyone(obj, tree):
 	if 'label' in tree:
 		return tree['label']
 	cat = tree['decision']
@@ -186,18 +145,18 @@ def classifyitup(obj, tree):
 		if 'label' in tree['true']:
 			return tree['true']['label']
 		else:
-			return classifyitup(obj, tree['true'])
+			return classifyone(obj, tree['true'])
 
 	elif obj[cat]==0:
 		if 'label' in tree['false']:
 			return tree['false']['label']
 		else:
-			return classifyitup(obj, tree['false'])
+			return classifyone(obj, tree['false'])
 
-def classifythemup(tree,theset):
+def classifyall(tree,theset):
 	arr = [];
 	for obj in theset:
-		classi = classifyitup(obj, tree)
+		classi = classifyone(obj, tree)
 		arr.append(classi)
 	return arr
 
@@ -205,82 +164,83 @@ def printarr(arr):
 	for v in arr:
 		print v
 
-'''main'''
+
+if __name__ == "__main__":
+	
+	inputfile = sys.argv[1]
+	trainingsetsize = int(sys.argv[2])
+	numtrials = int(sys.argv[3])
+	verbose = int(sys.argv[4])
+	people = []
+
+	with open(inputfile, 'rb') as csvfile:
+		reader = csv.reader(csvfile, delimiter=' ', quotechar='|')
+		for i,row in enumerate(reader):
+			dick = {};
+			if i!=0:
+				dick['GoodGrades'] = encode(row[0]);
+				dick['GoodLetters'] = encode(row[1]);
+				dick['GoodSAT'] = encode(row[2]);
+				dick['IsRich'] = encode(row[3]);
+				dick['HasScholarship'] = encode(row[4]);
+				dick['ParentAlum'] = encode(row[5]);
+				dick['SchoolActivities'] = encode(row[6]);
+				dick['Class'] = encode(row[7]);
+				people.append(dick);
+
+	testsetsize = 1.0*len(people)-trainingsetsize
+
+	categories = ['GoodGrades', 'GoodLetters', 'GoodSAT', 'IsRich', 'HasScholarship', 'ParentAlum', 'SchoolActivities']
 
 
-arr = [];
+	master = []
+	for i in range(numtrials):
+		trainingset = random.sample(list(enumerate(people)), trainingsetsize)
+		testset = [x for x in list(enumerate(people)) if x not in trainingset]
+		trainingset = [x[1] for x in trainingset]
+		testset = [x[1] for x in testset]
 
-with open(inputfile, 'rb') as csvfile:
-	reader = csv.reader(csvfile, delimiter=' ', quotechar='|')
-	for i,row in enumerate(reader):
-		dick = {};
-		if i!=0:
-			dick['GoodGrades'] = encode(row[0]);
-			dick['GoodLetters'] = encode(row[1]);
-			dick['GoodSAT'] = encode(row[2]);
-			dick['IsRich'] = encode(row[3]);
-			dick['HasScholarship'] = encode(row[4]);
-			dick['ParentAlum'] = encode(row[5]);
-			dick['SchoolActivities'] = encode(row[6]);
-			dick['Class'] = encode(row[7]);
-			arr.append(dick);
+		tree = maketree(trainingset,categories)
+		decisions = classifyall(tree,testset)
+		master.append((trainingset, testset, decisions, tree))
 
 
-trainingset = random.sample(list(enumerate(arr)), trainingsetsize)
-testset = [x for x in list(enumerate(arr)) if x not in trainingset]
-trainingset = [x[1] for x in trainingset]
-testset = [x[1] for x in testset]
+	sumppdiff = 0; sumdtdiff = 0;
+	totaltrials = testsetsize*numtrials
 
-categories = ['GoodGrades', 'GoodLetters', 'GoodSAT', 'IsRich', 'HasScholarship', 'ParentAlum', 'SchoolActivities']
-
-
-master = []
-for i in range(numtrials):
-	trainingset = random.sample(list(enumerate(arr)), trainingsetsize)
-	testset = [x for x in list(enumerate(arr)) if x not in trainingset]
-	trainingset = [x[1] for x in trainingset]
-	testset = [x[1] for x in testset]
-
-	tree = classifybaby(trainingset,categories)
-	decisions = classifythemup(tree,testset)
-	master.append((trainingset, testset, decisions, tree))
+	for k,v in enumerate(master):
+		actuals, ppout, classi, ppdiff, dtdiff = checkThem(v[0], v[1], v[2])
+		sumppdiff += ppdiff
+		sumdtdiff += dtdiff
 
 
-sumppdiff = 0; sumdtdiff = 0;
-totaltrials = 1.0*len(testset)*numtrials
 
+	print "Making a decision tree out of the data in: ", inputfile
+	print "The training set size is:", trainingsetsize
+	print "The testing set size is  ", len(testset)
+	print "Performing ", numtrials, "trials"
+	print "Mean decision tree performance:", int(sumdtdiff), "/", int(totaltrials), "incorrect"
+	print "Mean prior probability performance:", int(sumppdiff), "/", int(totaltrials), "incorrect"
+	print "\n\n"
 
-for k,v in enumerate(master):
-	actuals, ppout, classi, ppdiff, dtdiff = checkThem(v[0], v[1], v[2])
-	sumppdiff += ppdiff
-	sumdtdiff += dtdiff
-
-print "\n\n"
-print "Making a decision tree out of the data in: ", inputfile
-print "The training set size is:", trainingsetsize
-print "The testing set size is  ", len(testset)
-print "Performing ", numtrials, "trials"
-print "Mean decision tree performance:", int(sumdtdiff), "/", int(totaltrials), "incorrect"
-print "Mean prior probability performance:", int(sumppdiff), "/", int(totaltrials), "incorrect"
-print "\n\n"
-
-for k,v in enumerate(master):
-	tree = v[3]
-	actuals, ppout, classi, ppdiff, dtdiff = checkThem(v[0], v[1], v[2])
-	print "Trial:", k
-	print "Prior probability incorrect classifications:   ", int(ppdiff), "/", len(testset)
-	print "Decisiontree incorrect classifications:        ", int(dtdiff), "/", len(testset)
-	print "\n"
-	pprint(tree)
-	print "\n"
-	if verbose:
-		print "Actual classifications       ", actuals
-		print "Prior prob classifications   ", ppout
-		print "Decisiontree classifications ", classi
+	for k,v in enumerate(master):
+		tree = v[3]
+		actuals, ppout, classi, ppdiff, dtdiff = checkThem(v[0], v[1], v[2])
+		print "Trial:", k
+		print "Decisiontree incorrect classifications:        ", int(dtdiff), "/", len(testset)
+		print "Prior probability incorrect classifications:   ", int(ppdiff), "/", len(testset)
 		print "\n"
-		print "Trainingset: "
-		printarr(v[0])
+		pprint(tree)
 		print "\n"
-		print "Testset: "
-		printarr(v[1])
-		print "\n"
+		if verbose:
+			print "Actual classifications       ", actuals
+			print "Prior prob classifications   ", ppout
+			print "Decisiontree classifications ", classi
+			print "\n"
+			print "Trainingset: "
+			printarr(v[0])
+			print "\n"
+			print "Testset: "
+			printarr(v[1])
+			print "\n"
+
